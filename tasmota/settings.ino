@@ -773,6 +773,7 @@ void SettingsDefaultSet2(void)
   Settings.sbaudrate = SOFT_BAUDRATE / 300;
   Settings.serial_delimiter = 0xff;
   Settings.seriallog_level = SERIAL_LOG_LEVEL;
+  Settings.ser2net_port = 0;
 
   // Wifi
   flag3.use_wifi_scan |= WIFI_SCAN_AT_RESTART;

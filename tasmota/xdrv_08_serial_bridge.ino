@@ -27,18 +27,23 @@
 const uint8_t SERIAL_BRIDGE_BUFFER_SIZE = 130;
 
 const char kSerialBridgeCommands[] PROGMEM = "|"  // No prefix
-  D_CMND_SSERIALSEND "|" D_CMND_SBAUDRATE;
+  D_CMND_SSERIALSEND "|" D_CMND_SBAUDRATE "|" D_CMND_SSER2NET_PORT;
 
 void (* const SerialBridgeCommand[])(void) PROGMEM = {
-  &CmndSSerialSend, &CmndSBaudrate };
+  &CmndSSerialSend, &CmndSBaudrate, &CmndSSer2NetPort };
 
 #include <TasmotaSerial.h>
 
 TasmotaSerial *SerialBridgeSerial = nullptr;
+WiFiServer *Ser2netServer = nullptr;
+WiFiClient *Ser2netClient = nullptr;
 
 unsigned long serial_bridge_polling_window = 0;
+unsigned long serial_bridge_out_polling_window = 0;
 char *serial_bridge_buffer = nullptr;
+char *serial_bridge_out_buffer = nullptr;
 int serial_bridge_in_byte_counter = 0;
+int serial_bridge_out_byte_counter = 0;
 bool serial_bridge_active = true;
 bool serial_bridge_raw = false;
 
@@ -72,6 +77,9 @@ void SerialBridgeInput(void)
     serial_bridge_buffer[serial_bridge_in_byte_counter] = 0;                   // Serial data completed
     char hex_char[(serial_bridge_in_byte_counter * 2) + 2];
     bool assume_json = (!serial_bridge_raw && (serial_bridge_buffer[0] == '{'));
+    if (Ser2netClient) {
+      Ser2netClient->write(serial_bridge_buffer, serial_bridge_in_byte_counter);
+    }
     Response_P(PSTR("{\"" D_JSON_SSERIALRECEIVED "\":%s%s%s}"),
       (assume_json) ? "" : "\"",
       (serial_bridge_raw) ? ToHex_P((unsigned char*)serial_bridge_buffer, serial_bridge_in_byte_counter, hex_char, sizeof(hex_char)) : serial_bridge_buffer,
@@ -82,12 +90,82 @@ void SerialBridgeInput(void)
   }
 }
 
+void SerialBridgeOutput(void)
+{
+  AddLog_P(LOG_LEVEL_INFO, PSTR("Serial2net loop\n"));
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("Serial2net loop\n"));
+  if (Ser2netClient && !Ser2netClient->connected()) {
+    Ser2netClient->stop();
+    delete Ser2netClient;
+    Ser2netClient = nullptr;
+  }
+  if (Ser2netServer && Ser2netServer->hasClient()) {
+    // Free unconnected client first.
+    if (Ser2netClient && !Ser2netClient->connected()) {
+      Ser2netClient->stop();
+      delete Ser2netClient;
+      Ser2netClient = nullptr;
+    }
+    Ser2netClient = new WiFiClient;
+    *Ser2netClient = Ser2netServer->available();
+  }
+  while (Ser2netClient->available()) {
+    yield();
+    uint8_t serial_out_byte = Ser2netClient->read();
+
+    if ((serial_out_byte > 127) && !serial_bridge_raw) {                       // Discard binary data above 127 if no raw reception allowed
+      serial_bridge_out_byte_counter = 0;
+      Ser2netClient->flush();
+      return;
+    }
+    if (serial_out_byte || serial_bridge_raw) {                                // Any char between 1 and 127 or any char (0 - 255)
+
+      if ((serial_bridge_out_byte_counter < SERIAL_BRIDGE_BUFFER_SIZE -1) &&    // Add char to string if it still fits and ...
+          ((isprint(serial_out_byte) && (128 == Settings.serial_delimiter)) ||  // Any char between 32 and 127
+          ((serial_out_byte != Settings.serial_delimiter) && (128 != Settings.serial_delimiter)) ||  // Any char between 1 and 127 and not being delimiter
+            serial_bridge_raw)) {                                              // Any char between 0 and 255
+        serial_bridge_out_buffer[serial_bridge_out_byte_counter++] = serial_out_byte;
+        serial_bridge_out_polling_window = millis();                               // Wait for more data
+      } else {
+        serial_bridge_out_polling_window = 0;                                      // Publish now
+        break;
+      }
+    }
+  }
+
+  if (serial_bridge_out_byte_counter && (millis() > (serial_bridge_out_polling_window + SERIAL_POLLING))) {
+    serial_bridge_out_buffer[serial_bridge_out_byte_counter] = 0;
+    if (SerialBridgeSerial) {
+      SerialBridgeSerial->write(serial_bridge_out_buffer, serial_bridge_out_byte_counter);
+    }
+    serial_bridge_out_byte_counter = 0;
+  }
+}
+
 /********************************************************************************************/
+
+void SerialBridgeCreateTCPServer(int port) {
+  if (port > 0) {
+    Ser2netServer = new WiFiServer(Settings.ser2net_port);
+    Ser2netServer->begin();
+    Ser2netServer->setNoDelay(true);
+    // create out buffer when Server create.
+    serial_bridge_out_buffer = (char*)(malloc(SERIAL_BRIDGE_BUFFER_SIZE));
+  } else {
+    Ser2netServer->stop();
+    delete Ser2netServer;
+    Ser2netServer = nullptr;
+    free(serial_bridge_out_buffer);
+    serial_bridge_out_buffer = nullptr;
+  }
+}
 
 void SerialBridgeInit(void)
 {
   serial_bridge_active = false;
   if (PinUsed(GPIO_SBR_RX) && PinUsed(GPIO_SBR_TX)) {
+    if ((Settings.ser2net_port > 0) && (!Ser2netServer))
+      SerialBridgeCreateTCPServer(Settings.ser2net_port);
     SerialBridgeSerial = new TasmotaSerial(Pin(GPIO_SBR_RX), Pin(GPIO_SBR_TX));
     if (SerialBridgeSerial->begin(Settings.sbaudrate * 300)) {  // Baud rate is stored div 300 so it fits into 16 bits
       if (SerialBridgeSerial->hardwareSerial()) {
@@ -152,6 +230,19 @@ void CmndSBaudrate(void)
   ResponseCmndNumber(Settings.sbaudrate * 300);
 }
 
+void CmndSSer2NetPort(void)
+{
+  if (XdrvMailbox.payload >= 0) {
+    Settings.ser2net_port = XdrvMailbox.payload;
+    if ((Ser2netServer) && (Ser2netServer->port() != Settings.ser2net_port))
+      // Delete old server.
+      SerialBridgeCreateTCPServer(-1);
+    if (!Ser2netServer)
+      SerialBridgeCreateTCPServer(Settings.ser2net_port);
+  }
+  ResponseCmndNumber(Settings.ser2net_port);
+}
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -164,6 +255,7 @@ bool Xdrv08(uint8_t function)
     switch (function) {
       case FUNC_LOOP:
         if (SerialBridgeSerial) { SerialBridgeInput(); }
+        if (Ser2netServer) { SerialBridgeOutput(); }
         break;
       case FUNC_PRE_INIT:
         SerialBridgeInit();
