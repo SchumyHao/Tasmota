@@ -92,8 +92,6 @@ void SerialBridgeInput(void)
 
 void SerialBridgeOutput(void)
 {
-  AddLog_P(LOG_LEVEL_INFO, PSTR("Serial2net loop\n"));
-  AddLog_P2(LOG_LEVEL_INFO, PSTR("Serial2net loop\n"));
   if (Ser2netClient && !Ser2netClient->connected()) {
     Ser2netClient->stop();
     delete Ser2netClient;
@@ -109,7 +107,7 @@ void SerialBridgeOutput(void)
     Ser2netClient = new WiFiClient;
     *Ser2netClient = Ser2netServer->available();
   }
-  while (Ser2netClient->available()) {
+  while (Ser2netClient && Ser2netClient->available()) {
     yield();
     uint8_t serial_out_byte = Ser2netClient->read();
 
@@ -232,13 +230,16 @@ void CmndSBaudrate(void)
 
 void CmndSSer2NetPort(void)
 {
-  if (XdrvMailbox.payload >= 0) {
+  if (XdrvMailbox.payload > 0) {
     Settings.ser2net_port = XdrvMailbox.payload;
     if ((Ser2netServer) && (Ser2netServer->port() != Settings.ser2net_port))
       // Delete old server.
       SerialBridgeCreateTCPServer(-1);
     if (!Ser2netServer)
       SerialBridgeCreateTCPServer(Settings.ser2net_port);
+  } else {
+    SerialBridgeCreateTCPServer(-1);
+    Settings.ser2net_port = 0;
   }
   ResponseCmndNumber(Settings.ser2net_port);
 }
