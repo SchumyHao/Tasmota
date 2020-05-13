@@ -758,6 +758,7 @@ typedef struct MYTMPLT {
 // Supported hardware modules
 
 enum SupportedModules {
+  Z2MP_V2P1,
   SONOFF_BASIC, SONOFF_RF, SONOFF_SV, SONOFF_TH, SONOFF_DUAL, SONOFF_POW, SONOFF_4CH, SONOFF_S2X, SLAMPHER, SONOFF_TOUCH,
   SONOFF_LED, CH1, CH4, MOTOR, ELECTRODRAGON, EXS_RELAY, WION, WEMOS, SONOFF_DEV, H801,
   SONOFF_SC, SONOFF_BN, SONOFF_4CHPRO, HUAFAN_SS, SONOFF_BRIDGE, SONOFF_B1, AILIGHT, SONOFF_T11, SONOFF_T12, SONOFF_T13,
@@ -771,6 +772,7 @@ enum SupportedModules {
 #define USER_MODULE        255
 
 const char kModuleNames[] PROGMEM =
+  "z2mp v2p1|"
   "Sonoff Basic|Sonoff RF|Sonoff SV|Sonoff TH|Sonoff Dual|Sonoff Pow|Sonoff 4CH|Sonoff S2X|Slampher|Sonoff Touch|"
   "Sonoff LED|1 Channel|4 Channel|Motor C/AC|ElectroDragon|EXS Relay(s)|WiOn|Generic|Sonoff Dev|H801|"
   "Sonoff SC|Sonoff BN-SZ|Sonoff 4CH Pro|Huafan SS|Sonoff Bridge|Sonoff B1|AiLight|Sonoff T1 1CH|Sonoff T1 2CH|Sonoff T1 3CH|"
@@ -782,6 +784,7 @@ const char kModuleNames[] PROGMEM =
   ;
 
 const uint8_t kModuleNiceList[] PROGMEM = {
+  Z2MP_V2P1,
   SONOFF_BASIC,        // Sonoff Relay Devices
   SONOFF_RF,
   SONOFF_TH,
@@ -882,6 +885,26 @@ const uint8_t kModuleNiceList[] PROGMEM = {
 
 // Default module settings
 const mytmplt kModules[MAXMODULE] PROGMEM = {
+  {                   // z2mp v2p1
+    GPIO_KEY1,        // GPIO00 Button
+    GPIO_SBR_TX,      // GPIO01 ESP TX pin.
+    GPIO_USER,        // GPIO02 Debug TX.
+    GPIO_SBR_RX,      // GPIO03 ESP RX pin.
+    GPIO_USER,        // GPIO04 Debug Rx
+    GPIO_LED1,        // GPIO05 SEL 1 pin
+                      // GPIO06 (SD_CLK   Flash)
+                      // GPIO07 (SD_DATA0 Flash QIO/DIO/DOUT)
+                      // GPIO08 (SD_DATA1 Flash QIO/DIO/DOUT)
+    0,                // GPIO09 (SD_DATA2 Flash QIO or ESP8285)
+    0,                // GPIO10 (SD_DATA3 Flash QIO or ESP8285)
+                      // GPIO11 (SD_CMD   Flash)
+    GPIO_REL1,        // GPIO12 Zigbee RST pin (0 = Off, 1 = On)
+    0,                // GPIO13 Zigbee P22
+    0,                // GPIO14 Zigbee P21
+    GPIO_USER,        // GPIO15 LED
+    GPIO_LED2,        // GPIO16 SEL 2 pin
+    0                 // ADC0 Analog input
+  },
   {                   // SONOFF_BASIC - Sonoff Basic (ESP8266)
     GPIO_KEY1,        // GPIO00 Button
     GPIO_USER,        // GPIO01 Serial RXD and Optional sensor
