@@ -52,7 +52,7 @@ void SerialBridgeInput(void)
   while (SerialBridgeSerial->available()) {
     yield();
     uint8_t serial_in_byte = SerialBridgeSerial->read();
-
+    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_DEBUG "Serial IN 0x%x"), serial_in_byte);
     if ((serial_in_byte > 127) && !serial_bridge_raw) {                        // Discard binary data above 127 if no raw reception allowed
       serial_bridge_in_byte_counter = 0;
       SerialBridgeSerial->flush();
@@ -110,6 +110,7 @@ void SerialBridgeOutput(void)
   while (Ser2netClient && Ser2netClient->available()) {
     yield();
     uint8_t serial_out_byte = Ser2netClient->read();
+    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_DEBUG "TCP IN 0x%x"), serial_out_byte);
 
     if ((serial_out_byte > 127) && !serial_bridge_raw) {                       // Discard binary data above 127 if no raw reception allowed
       serial_bridge_out_byte_counter = 0;
@@ -163,13 +164,13 @@ void SerialBridgeInit(void)
 {
   serial_bridge_active = false;
   if (PinUsed(GPIO_SBR_RX) && PinUsed(GPIO_SBR_TX)) {
-    if ((Settings.ser2net_port > 0) && (!Ser2netServer))
-      SerialBridgeCreateTCPServer(Settings.ser2net_port);
-    SerialBridgeSerial = new TasmotaSerial(Pin(GPIO_SBR_RX), Pin(GPIO_SBR_TX));
+    SerialBridgeSerial = new TasmotaSerial(Pin(GPIO_SBR_RX), Pin(GPIO_SBR_TX),
+      (seriallog_level == LOG_LEVEL_NONE) ? 1 : 0);
     if (SerialBridgeSerial->begin(Settings.sbaudrate * 300)) {  // Baud rate is stored div 300 so it fits into 16 bits
       if (SerialBridgeSerial->hardwareSerial()) {
         ClaimSerial();
         serial_bridge_buffer = serial_in_buffer;  // Use idle serial buffer to save RAM
+        AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_BRIDGE "Use Hardware Serial. Rx:%d Tx:%d"), Pin(GPIO_SBR_RX), Pin(GPIO_SBR_TX));
       } else {
         serial_bridge_buffer = (char*)(malloc(SERIAL_BRIDGE_BUFFER_SIZE));
       }
@@ -257,7 +258,14 @@ bool Xdrv08(uint8_t function)
     switch (function) {
       case FUNC_LOOP:
         if (SerialBridgeSerial) { SerialBridgeInput(); }
-        if (Ser2netServer) { SerialBridgeOutput(); }
+        if (Settings.ser2net_port > 0) {
+          if (Ser2netServer) {
+            SerialBridgeOutput();
+          } else {
+            if (WiFi.status() == WL_CONNECTED)
+              SerialBridgeCreateTCPServer(Settings.ser2net_port);
+          }
+        }
         break;
       case FUNC_PRE_INIT:
         SerialBridgeInit();
