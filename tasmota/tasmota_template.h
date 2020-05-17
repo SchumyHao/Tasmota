@@ -891,18 +891,18 @@ const mytmplt kModules[MAXMODULE] PROGMEM = {
     GPIO_USER,        // GPIO02 Debug TX.
     GPIO_SBR_RX,      // GPIO03 ESP RX pin.
     GPIO_USER,        // GPIO04 Debug Rx
-    GPIO_LED1,        // GPIO05 SEL 1 pin
+    0,                // GPIO05 SEL 1 pin
                       // GPIO06 (SD_CLK   Flash)
                       // GPIO07 (SD_DATA0 Flash QIO/DIO/DOUT)
                       // GPIO08 (SD_DATA1 Flash QIO/DIO/DOUT)
     0,                // GPIO09 (SD_DATA2 Flash QIO or ESP8285)
     0,                // GPIO10 (SD_DATA3 Flash QIO or ESP8285)
                       // GPIO11 (SD_CMD   Flash)
-    GPIO_REL1,        // GPIO12 Zigbee RST pin (0 = Off, 1 = On)
+    0,                // GPIO12 Zigbee RST pin (0 = Off, 1 = On)
     0,                // GPIO13 Zigbee P22
     0,                // GPIO14 Zigbee P21
-    GPIO_USER,        // GPIO15 LED
-    GPIO_LED2,        // GPIO16 SEL 2 pin
+    0,                // GPIO15 LED
+    0,                // GPIO16 SEL 0 pin
     0                 // ADC0 Analog input
   },
   {                   // SONOFF_BASIC - Sonoff Basic (ESP8266)
