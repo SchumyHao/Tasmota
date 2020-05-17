@@ -144,6 +144,7 @@ void SerialBridgeOutput(void)
 
 void SerialBridgeCreateTCPServer(int port) {
   if (port > 0) {
+    serial_bridge_raw = true;
     Ser2netServer = new WiFiServer(Settings.ser2net_port);
     Ser2netServer->begin();
     Ser2netServer->setNoDelay(true);
