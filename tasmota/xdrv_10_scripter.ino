@@ -112,6 +112,10 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD};
 #include <SD_MMC.h>
 #undef FS_USED
 #define FS_USED SD_MMC
+#elif defined(USE_LITTLEFS)
+#include <LittleFS.h>
+#undef FS_USED
+#define FS_USED LittleFS
 #else
 #include <SD.h>
 #undef FS_USED
@@ -119,10 +123,19 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD};
 #endif
 
 #ifndef ESP32
-#undef FILE_WRITE
-#define FILE_WRITE (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT)
-#define FILE_APPEND (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT | sdfat::O_APPEND)
-#endif
+#if defined(USE_LITTLEFS)
+  #undef FILE_READ
+  #define FILE_READ ("r")
+  #undef FILE_WRITE
+  #define FILE_WRITE ("w")
+  #undef FILE_APPEND
+  #define FILE_APPEND ("a")
+#else
+  #undef FILE_WRITE
+  #define FILE_WRITE (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT)
+  #define FILE_APPEND (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT | sdfat::O_APPEND)
+#endif // if defined(USE_LITTLEFS)
+#endif // ESP32
 
 #ifndef FAT_SCRIPT_SIZE
 #define FAT_SCRIPT_SIZE 4096
@@ -135,7 +148,7 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD};
 #define FAT_SCRIPT_NAME "script.txt"
 #endif
 
-#if USE_STANDARD_SPI_LIBRARY==0
+#if USE_STANDARD_SPI_LIBRARY==0 && !defined(USE_LITTLEFS)
 #warning ("FATFS standard spi should be used");
 #endif
 #endif
@@ -3612,6 +3625,7 @@ uint8_t reject(char *name) {
   return 0;
 }
 
+#ifdef SDCARD_DIR
 void ListDir(char *path, uint8_t depth) {
   char name[32];
   char npath[128];
@@ -3681,6 +3695,7 @@ void ListDir(char *path, uint8_t depth) {
     dir.close();
   }
 }
+#endif //SDCARD_DIR
 
 char path[48];
 
