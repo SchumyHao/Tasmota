@@ -14,7 +14,7 @@ void (* const CCloaderCommand[])(void) PROGMEM = {
 
 static bool CCloader_active;
 static CCLoader *loader = nullptr;
-static char fwName[] = "2530.bin";
+//static char fwName[] = "2530.bin";
 static uint8_t spiffs_mounted=0;
 
 /*
@@ -41,7 +41,7 @@ void LoadFile(const char *name,uint8_t *buf,uint32_t len) {
 }
 */
 
-static int CCloaderDoUpdate()
+static int CCloaderDoUpdate(const char* fwName)
 {
   if (!spiffs_mounted) {
     if(!LittleFS.begin()) {
@@ -147,24 +147,17 @@ void CCloaderInit(void)
     loader = new CCLoader(Pin(GPIO_CC_DD), Pin(GPIO_CC_DC), Pin(GPIO_CC_RST));
     // Need or not?
     loader->ProgrammerInit();
+    AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "CCloader init OK"));
     CCloader_active = true;
   }
 }
 
 void CmndCCloaderUpdate(void)
 {
-  if (XdrvMailbox.payload > 0) {
-    Settings.ser2net_port = XdrvMailbox.payload;
-    if ((Ser2netServer) && (Ser2netServer->port() != Settings.ser2net_port))
-      // Delete old server.
-      SerialBridgeCreateTCPServer(-1);
-    if (!Ser2netServer)
-      SerialBridgeCreateTCPServer(Settings.ser2net_port);
-  } else {
-    SerialBridgeCreateTCPServer(-1);
-    Settings.ser2net_port = 0;
+  if (XdrvMailbox.data_len > 0) {
+    CCloaderDoUpdate(XdrvMailbox.data);
   }
-  ResponseCmndNumber(Settings.ser2net_port);
+  ResponseCmndDone();
 }
 
 /*********************************************************************************************\
