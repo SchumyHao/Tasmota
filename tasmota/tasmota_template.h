@@ -233,6 +233,9 @@ enum UserSelectablePins {
   GPIO_BOILER_OT_RX,   // OpenTherm Boiler RX pin
   GPIO_BOILER_OT_TX,   // OpenTherm Boiler TX pin
   GPIO_WINDMETER_SPEED,  // WindMeter speed counter pin
+  GPIO_CC_DC,
+  GPIO_CC_DD,
+  GPIO_CC_RST,
   GPIO_SENSOR_END };
 
 // Programmer selectable GPIO functionality

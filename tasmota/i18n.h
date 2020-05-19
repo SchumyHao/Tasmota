@@ -586,6 +586,9 @@
 // Commands xsns_02_analog.ino
 #define D_CMND_ADCPARAM "AdcParam"
 
+// Commands xdrv_98_ccloader.ino
+#define D_CMND_CCLOADER_UPDATE "CCloaderUpdate"
+
 /********************************************************************************************/
 
 // Log message prefix
