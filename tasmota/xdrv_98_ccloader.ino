@@ -70,7 +70,7 @@ static int CCloaderDoUpdate(const char* fwName)
   loader->ProgrammerInit();
   unsigned char chip_id = 0;
   unsigned char debug_config = 0;
-  unsigned char verify = 0;
+  unsigned char verify = 1;
 
   loader->debug_init();
   chip_id = loader->read_chip_id();
@@ -105,6 +105,7 @@ static int CCloaderDoUpdate(const char* fwName)
   unsigned int offset;
 
   for (uint16_t i = 0; i < blkTot; i++) {
+    yield();
     AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "blkTot: %d"), i + 1);
     if ((i == (blkTot - 1)) && (remain != 0)) {
       file.read(rxBuf, remain);
