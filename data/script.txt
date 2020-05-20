@@ -1,0 +1,58 @@
+>D
+wp=15
+zp=4
+zrp=12
+s0=16
+s1=5
+p:wl=0
+p:zl=0
+v=0
+zr=0
+
+; On boot
+>B
+=>print Set Pins
+spinm(wp 1)
+spinm(zp 1)
+spinm(s0 1)
+spinm(s1 1)
+spinm(zrp 1)
+spin(s0 1)
+spin(s1 1)
+=>print Reset Zigbee
+spin(zrp 1)
+delay(200)
+spin(zrp 0)
+delay(200)
+spin(zrp 1)
+
+>E
+if wl>0
+  then
+  spin(wp 1)
+  =>print Set WiFi LED on
+else
+  spin(wp 0)
+  =>print Set WiFi LED off
+endif
+if zl>0
+  then
+  spin(zp 1)
+  =>print Set Zigbee LED on
+else
+  spin(zp 0)
+  =>print Set Zigbee LED off
+endif
+if chg[zr]>0
+then
+  =>print Reset Zigbee
+  spin(zrp 0)
+  delay(200)
+  spin(zrp 1)
+endif
+
+; On webpage
+>W
+bu(wl "WiFi Light on" "WiFi Light off")
+bu(zl "Zigbee Light on" "Zigbee Light off")
+bu(zr "Reset Zigbee" "Reset Zigbee")
