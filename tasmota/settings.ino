@@ -930,6 +930,7 @@ void SettingsDefaultSet2(void)
 //  Settings.altitude = 0;
 
   // Rules
+   bitWrite(Settings.rule_enabled,0,1);
 //  Settings.rule_enabled = 0;
 //  Settings.rule_once = 0;
 //  for (uint32_t i = 1; i < MAX_RULE_SETS; i++) { Settings.rules[i][0] = '\0'; }
