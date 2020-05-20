@@ -303,6 +303,8 @@
 #define PCF8574_INVERT_PORTS   false             // [SetOption81] Invert all ports on PCF8574 devices
 #define ZIGBEE_FRIENDLY_NAMES  false             // [SetOption83] Enable Zigbee FriendlyNames instead of ShortAddresses when possible
 
+#define USE_CCLOADER
+
 /*********************************************************************************************\
  * END OF SECTION 1
  *
@@ -402,7 +404,8 @@
 #define USE_SCRIPT                               // Add support for script (+17k code)
   #define USE_SCRIPT_WEB_DISPLAY
   #define USE_BUTTON_EVENT
-  //#define USE_SCRIPT_FATFS 4                     // Script: Add FAT FileSystem Support
+  #define USE_SCRIPT_FATFS                       // Script: Add FAT FileSystem Support
+  #define USE_LITTLEFS
 
 //  #define USE_EXPRESSION                         // Add support for expression evaluation in rules (+3k2 code, +64 bytes mem)
 //    #define SUPPORT_IF_STATEMENT                 // Add support for IF statement in rules (+4k2 code, -332 bytes mem)
