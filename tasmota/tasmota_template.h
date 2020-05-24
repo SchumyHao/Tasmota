@@ -193,6 +193,12 @@ enum UserSelectablePins {
   GPIO_SOLAXX1_RX,     // Solax Inverter rx pin
   GPIO_ZIGBEE_TX,      // Zigbee Serial interface
   GPIO_ZIGBEE_RX,      // Zigbee Serial interface
+  GPIO_ZIGBEE_MISO,
+  GPIO_ZIGBEE_MOSI,
+  GPIO_ZIGBEE_CLK,
+  GPIO_ZIGBEE_CS,
+  GPIO_ZIGBEE_SRDY,
+  GPIO_ZIGBEE_MRDY,
   GPIO_RDM6300_RX,     // RDM6300 RX
   GPIO_IBEACON_TX,     // HM17 IBEACON TX
   GPIO_IBEACON_RX,     // HM17 IBEACON RX
@@ -576,6 +582,14 @@ const uint8_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_ZIGBEE
   GPIO_ZIGBEE_TX,      // Zigbee Serial interface
   GPIO_ZIGBEE_RX,      // Zigbee Serial interface
+#ifdef USE_ZIGBEE_SPI
+  GPIO_ZIGBEE_MISO,
+  GPIO_ZIGBEE_MOSI,
+  GPIO_ZIGBEE_CLK,
+  GPIO_ZIGBEE_CS,
+  GPIO_ZIGBEE_SRDY,
+  GPIO_ZIGBEE_MRDY,
+#endif //USE_ZIGBEE_SPI
 #endif
 #ifdef USE_MHZ19
   GPIO_MHZ_TXD,        // MH-Z19 Serial interface
