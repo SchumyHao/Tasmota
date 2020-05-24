@@ -162,40 +162,23 @@ void ZigbeeSPIInputLoop(void)
     ZigbeeSPI->poll(rdf);
     AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("Zb SPI Input len=%d cmd0=0x%X cmd1=0x%X"),
       rdf.length, rdf.cmd0, rdf.cmd1);
-  }
-/*
-  if (zigbee_buffer->len() && (millis() > (zigbee_polling_window + ZIGBEE_POLLING))) {
+    SBuffer znp_buffer(rdf.length + 2); // save cmd0 cmd1 and data
+    znp_buffer.add8(rdf.cmd0);
+    znp_buffer.add8(rdf.cmd1);
+    znp_buffer.addBuffer(rdf.msg, rdf.length);
+
     char hex_char[(zigbee_buffer->len() * 2) + 2];
-		ToHex_P((unsigned char*)zigbee_buffer->getBuffer(), zigbee_buffer->len(), hex_char, sizeof(hex_char));
-
-    // AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_ZIGBEE "Bytes follow_read_metric = %0d"), ZigbeeSerial->getLoopReadMetric());
-		// buffer received, now check integrity
-		if (zigbee_buffer->len() != zigbee_frame_len) {
-			// Len is not correct, log and reject frame
-      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received frame of wrong size %s, len %d, expected %d"), hex_char, zigbee_buffer->len(), zigbee_frame_len);
-		} else if (0x00 != fcs) {
-			// FCS is wrong, packet is corrupt, log and reject frame
-      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received bad FCS frame %s, %d"), hex_char, fcs);
-		} else {
-			// frame is correct
-			//AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received correct frame %s"), hex_char);
-
-			SBuffer znp_buffer = zigbee_buffer->subBuffer(2, zigbee_frame_len - 3);	// remove SOF, LEN and FCS
-
-			ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
-      Response_P(PSTR("{\"" D_JSON_ZIGBEEZNPRECEIVED "\":\"%s\"}"), hex_char);
-      if (Settings.flag3.tuya_serial_mqtt_publish) {
-        MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR));
-        XdrvRulesProcess();
-      } else {
-        AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "%s"), mqtt_data);
-      }
-			// now process the message
-      ZigbeeProcessInput(znp_buffer);
-		}
-		zigbee_buffer->setLen(0);		// empty buffer
+    ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
+    Response_P(PSTR("{\"" D_JSON_ZIGBEEZNPRECEIVED "\":\"%s\"}"), hex_char);
+    if (Settings.flag3.tuya_serial_mqtt_publish) {
+      MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR));
+      XdrvRulesProcess();
+    } else {
+      AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "%s"), mqtt_data);
+    }
+    // now process the message
+    ZigbeeProcessInput(znp_buffer);
   }
-*/
 }
 #endif
 
