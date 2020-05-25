@@ -52,7 +52,7 @@ void SerialBridgeInput(void)
   while (SerialBridgeSerial->available()) {
     yield();
     uint8_t serial_in_byte = SerialBridgeSerial->read();
-    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_DEBUG "Serial IN 0x%x"), serial_in_byte);
+    // AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_DEBUG "Serial IN 0x%x"), serial_in_byte);
     if ((serial_in_byte > 127) && !serial_bridge_raw) {                        // Discard binary data above 127 if no raw reception allowed
       serial_bridge_in_byte_counter = 0;
       SerialBridgeSerial->flush();
@@ -110,7 +110,7 @@ void SerialBridgeOutput(void)
   while (Ser2netClient && Ser2netClient->available()) {
     yield();
     uint8_t serial_out_byte = Ser2netClient->read();
-    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_DEBUG "TCP IN 0x%x"), serial_out_byte);
+    //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_DEBUG "TCP IN 0x%x"), serial_out_byte);
 
     if ((serial_out_byte > 127) && !serial_bridge_raw) {                       // Discard binary data above 127 if no raw reception allowed
       serial_bridge_out_byte_counter = 0;
@@ -133,10 +133,18 @@ void SerialBridgeOutput(void)
   }
 
   if (serial_bridge_out_byte_counter && (millis() > (serial_bridge_out_polling_window + SERIAL_POLLING))) {
-    serial_bridge_out_buffer[serial_bridge_out_byte_counter] = 0;
+    serial_bridge_out_buffer[serial_bridge_out_byte_counter] = 0;                   // Serial data completed
+    char hex_char[(serial_bridge_out_byte_counter * 2) + 2];
+    bool assume_json = (!serial_bridge_raw && (serial_bridge_out_buffer[0] == '{'));
     if (SerialBridgeSerial) {
       SerialBridgeSerial->write(serial_bridge_out_buffer, serial_bridge_out_byte_counter);
     }
+    Response_P(PSTR("{\"" D_JSON_SSERIALTRANSMITED "\":%s%s%s}"),
+      (assume_json) ? "" : "\"",
+      (serial_bridge_raw) ? ToHex_P((unsigned char*)serial_bridge_out_buffer, serial_bridge_out_byte_counter, hex_char, sizeof(hex_char)) : serial_bridge_out_buffer,
+      (assume_json) ? "" : "\"");
+    MqttPublishPrefixTopic_P(RESULT_OR_TELE, PSTR(D_JSON_SSERIALRECEIVED));
+    XdrvRulesProcess();
     serial_bridge_out_byte_counter = 0;
   }
 }
