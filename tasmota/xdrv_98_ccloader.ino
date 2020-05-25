@@ -14,75 +14,62 @@ void (* const CCloaderCommand[])(void) PROGMEM = {
 
 static bool CCloader_active;
 static CCLoader *loader = nullptr;
-//static char fwName[] = "2530.bin";
 static uint8_t spiffs_mounted=0;
-
-/*
-void SaveFile(const char *name,const uint8_t *buf,uint32_t len) {
-  File file = SPIFFS.open(name, FILE_WRITE);
-  if (!file) return;
-  file.write(buf, len);
-  file.close();
-}
-
-
-void LoadFile(const char *name,uint8_t *buf,uint32_t len) {
-  if (!spiffs_mounted) {
-    if(!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)){
-          //Serial.println("SPIFFS Mount Failed");
-      return;
-    }
-    spiffs_mounted=1;
-  }
-  File file = SPIFFS.open(name);
-  if (!file) return;
-  file.read(buf, len);
-  file.close();
-}
-*/
+static File fwfile;
+static bool start_upload_loop;
+static int blkTot;
+static int remain;
+static bool verify = true;
 
 static int CCloaderDoUpdate(const char* fwName)
 {
   if (!spiffs_mounted) {
     if(!LittleFS.begin()) {
-      AddLog_P(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Mount SPIFFS failed"));
+      AddLog_P(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Mount LittleFS failed"));
       return -1;
     }
     spiffs_mounted=1;
   }
 
   AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "Update cc253x fw %s"), fwName);
-  File file = LittleFS.open(fwName, "r");
-  if (!file) {
-    AddLog_P2(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Open %s failed"), fwName);
-    return -1;
-  }
 
-  int blkTot = file.size() / 512;
-  int remain = file.size() % 512;
+  if (fwfile)
+    AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "FW already opened"));
+  else {
+    fwfile = LittleFS.open(fwName, "r");
+    if (!fwfile) {
+      AddLog_P2(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Open %s failed"), fwName);
+      return -1;
+    }
+  }
+  AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "fw size %d"), fwfile.size());
+
+  blkTot = fwfile.size() / 512;
+  remain = fwfile.size() % 512;
   if (remain != 0) {
     blkTot++;
     AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "!!WARNING: File's size isn't the integer multiples of 512 bytes, and the last block will be filled in up to 512 bytes with 0xFF!"));
   }
-  AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "Block total: %d"), blkTot);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "Block total: %d"), blkTot);
 
   // Do upload
   loader->ProgrammerInit();
   unsigned char chip_id = 0;
   unsigned char debug_config = 0;
-  unsigned char verify = 1;
 
   loader->debug_init();
   chip_id = loader->read_chip_id();
   if (chip_id == 0) {
     AddLog_P(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "No chip detected, run loop again."));
-    file.close();
+    fwfile.close();
     return -2;
   }
+  AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "ChipID: 0x%X"), chip_id);
   loader->RunDUP();
   loader->debug_init();
 
   loader->chip_erase();
+  AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "ChipID: Erase done"));
   loader->RunDUP();
   loader->debug_init();
 
@@ -97,48 +84,8 @@ static int CCloaderDoUpdate(const char* fwName)
   debug_config = 0x22;
   loader->debug_command(CMD_WR_CONFIG, &debug_config, 1);
 
-  // Program data (start address must be word aligned [32 bit])
-  unsigned char rxBuf[512];
-  unsigned char read_data[512];
-  unsigned int addr = 0x0000;
-  unsigned char bank;
-  unsigned int offset;
-
-  for (uint16_t i = 0; i < blkTot; i++) {
-    yield();
-    AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "blkTot: %d"), i + 1);
-    if ((i == (blkTot - 1)) && (remain != 0)) {
-      file.read(rxBuf, remain);
-      int filled = 512 - remain;
-      for (uint16_t j = 0; j < filled; j++) {
-        rxBuf[remain + j] = 0xFF;
-      }
-      AddLog_P(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "last 0xFF"));
-    } else {
-      file.read(rxBuf, 512);
-    }
-    loader->write_flash_memory_block(rxBuf, addr, 512); // src, address, count
-    if (verify) {
-      bank = addr / (512 * 16);
-      offset = (addr % (512 * 16)) * 4;
-      loader->read_flash_memory_block(bank, offset, 512, read_data); // Bank, address, count, dest.
-      for (uint16_t i = 0; i < 512; i++) {
-        if (read_data[i] != rxBuf[i]) {
-          // Fail
-          loader->chip_erase();
-          AddLog_P(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Verify Error"));
-          file.close();
-          return -2;
-        }
-      }
-    }
-    addr += (unsigned int)128;
-    delay(100);
-  }
-  file.close();
-  loader->RunDUP();
-  AddLog_P2(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "chip_id %d OK"), chip_id);
-  delay(1000);
+  AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "Start uploader loop handler"));
+  start_upload_loop = true;
 }
 
 void CCloaderInit(void)
@@ -150,6 +97,56 @@ void CCloaderInit(void)
     loader->ProgrammerInit();
     AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "CCloader init OK"));
     CCloader_active = true;
+  }
+}
+
+void CCloaderLoop(void)
+{
+  static int blkIndex = 0;
+  static unsigned int addr = 0x0000;
+  // Program data (start address must be word aligned [32 bit])
+  unsigned char rxBuf[512];
+  unsigned char read_data[512];
+  unsigned char bank;
+  unsigned int offset;
+
+  if (blkIndex < blkTot) {
+    blkIndex++;
+    AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "Start upload blk %d/%d"), blkIndex, blkTot);
+    if ((blkIndex == (blkTot - 1)) && (remain != 0)) {
+      fwfile.read(rxBuf, remain);
+      int filled = 512 - remain;
+      for (uint16_t j = 0; j < filled; j++) {
+        rxBuf[remain + j] = 0xFF;
+      }
+      AddLog_P(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "last 0xFF"));
+    } else {
+      fwfile.read(rxBuf, 512);
+    }
+    loader->write_flash_memory_block(rxBuf, addr, 512); // src, address, count
+    if (verify) {
+      bank = addr / (512 * 16);
+      offset = (addr % (512 * 16)) * 4;
+      loader->read_flash_memory_block(bank, offset, 512, read_data); // Bank, address, count, dest.
+      for (uint16_t i = 0; i < 512; i++) {
+        if (read_data[i] != rxBuf[i]) {
+          // Fail
+          loader->chip_erase();
+          AddLog_P(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Verify Error"));
+          fwfile.close();
+          return;
+        }
+      }
+    }
+    addr += (unsigned int)128;
+    AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_ZIGBEE "upload blk %d/%d done"), blkIndex, blkTot);
+  } else {
+    addr = 0x0000;
+    blkIndex = 0;
+    loader->RunDUP();
+    AddLog_P(LOG_LEVEL_ERROR, PSTR(D_LOG_ZIGBEE "Firmware update OK"));
+    fwfile.close();
+    start_upload_loop = false;
   }
 }
 
@@ -172,8 +169,9 @@ bool Xdrv98(uint8_t function)
   switch (function) {
     //case FUNC_PIN_STATE:
     //  break;
-    //case FUNC_LOOP:
-    //  break;
+    case FUNC_EVERY_100_MSECOND:
+      if (start_upload_loop) CCloaderLoop();
+      break;
     case FUNC_PRE_INIT:
       CCloaderInit();
       break;
