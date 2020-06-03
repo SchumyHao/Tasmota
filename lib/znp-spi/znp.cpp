@@ -1,8 +1,42 @@
 #include "znp.h"
 
+#define DEFAULT_TIMEOUT_MS 1000
+
+ZNPDataFrame::ZNPDataFrame(uint8_t len, uint8_t c0, uint8_t c1, uint8_t *m)
+{
+  this->length = len;
+  this->cmd0 = c0;
+  this->cmd1 = c1;
+  this->msg = m;
+}
+
+ZNPDataFrame::ZNPDataFrame(uint8_t *m)
+{
+  this->length = 0;
+  this->cmd0 = 0;
+  this->cmd1 = 0;
+  this->msg = m;
+}
+
+uint8_t ZNPDataFrame::get_length() const { return this->length; }
+uint8_t ZNPDataFrame::get_cmd0() const { return this->cmd0; }
+uint8_t ZNPDataFrame::get_cmd1() const { return this->cmd1; }
+uint8_t* ZNPDataFrame::get_msg() const { return this->msg; }
+void ZNPDataFrame::set_length(uint8_t d) { this->length = d; }
+void ZNPDataFrame::set_cmd0(uint8_t d) { this->cmd0 = d; }
+void ZNPDataFrame::set_cmd1(uint8_t d) { this->cmd1 = d; }
+
+bool ZNP::wait_srdy_timeout(int target_level, int ms) {
+  int i = ms;
+  while(i && (digitalRead(PIN_SRDY) != target_level)) {
+    delay(1);
+    i--;
+  }
+  return (i > 0) ? true : false;
+}
+
 void ZNP::init()
 {
-  #ifdef USE_SPI
   pinMode(PIN_SRDY, INPUT);
   pinMode(PIN_SS_MRDY, OUTPUT);
   pinMode(PIN_CS, OUTPUT);
@@ -12,22 +46,9 @@ void ZNP::init()
   else
     SPI.setDataMode(SPI_MODE3);
   SPI.setClockDivider(SPI_CLOCK_DIV8);
-  #endif
-
-  #ifdef USE_UART
-  this->serial = new SoftwareSerial(PIN_RX, PIN_TX);
-  this->serial->begin(115200);
-
-  pinMode(PIN_RTS, OUTPUT);
-  pinMode(PIN_CTS, INPUT);
-  digitalWrite(PIN_RTS, LOW);
-  #endif
-
-  #ifdef USE_SPI
   digitalWrite(PIN_SS_MRDY, HIGH);
   digitalWrite(PIN_CS, HIGH);
   SPI.begin();
-  #endif
 }
 
 bool ZNP::available()
@@ -36,29 +57,30 @@ bool ZNP::available()
   return !digitalRead(PIN_SRDY);
 }
 
-void ZNP::read_response(ZNPDataFrame &rdf)
+int ZNP::read_response(ZNPDataFrame *rdf)
 {
-  #ifdef USE_SPI
+  int ret = 0;
+
   digitalWrite(PIN_CS, LOW);
-  rdf.length = SPI.transfer(0x00);
-  rdf.cmd0 = SPI.transfer(0x00);
-  rdf.cmd1 = SPI.transfer(0x00);
-  for (int i=0; i<rdf.length; i++) {
-    rdf.msg[i] = SPI.transfer(0x00);
+  rdf->set_length(SPI.transfer(0x00));
+  rdf->set_cmd0(SPI.transfer(0x00));
+  rdf->set_cmd1(SPI.transfer(0x00));
+  uint8_t *m = rdf->get_msg();
+  for (int i=0; i<rdf->get_length(); i++) {
+    m[i] = SPI.transfer(0x00);
+    ret++;
   }
   digitalWrite(PIN_CS, HIGH);
-  #endif
+  return ret;
 }
 
-void ZNP::poll(ZNPDataFrame &rdf)
+int ZNP::poll(ZNPDataFrame *rdf)
 {
-  #ifdef USE_SPI
   //poll
   //wait for srdy go low
-  while(digitalRead(PIN_SRDY) == HIGH) {
-    delay(10);
-  }
-  
+  if (!wait_srdy_timeout(LOW, DEFAULT_TIMEOUT_MS))
+    return -1;
+
   //srdy gone low
   digitalWrite(PIN_SS_MRDY, LOW);
 
@@ -71,170 +93,75 @@ void ZNP::poll(ZNPDataFrame &rdf)
   digitalWrite(PIN_CS, HIGH);
   
   //wait for srdy go high
-  while(digitalRead(PIN_SRDY) == LOW) {
-    delay(10);
-  }
-  #endif
-  this->read_response(rdf);
-  
-  #ifdef USE_SPI
+  if (!wait_srdy_timeout(HIGH, DEFAULT_TIMEOUT_MS))
+    return -1;
+
+  int ret = this->read_response(rdf);
+
   digitalWrite(PIN_SS_MRDY, HIGH);
-  #endif
   //poll done
+  return ret;
 }
 
-void ZNP::sreq(const ZNPDataFrame &sdf, ZNPDataFrame &rdf)
+int ZNP::sreq(const ZNPDataFrame *sdf, ZNPDataFrame *rdf)
 {
-  #ifdef USE_SPI
   digitalWrite(PIN_SS_MRDY, LOW);
-  while(digitalRead(PIN_SRDY) == HIGH) {
-    delay(10);
-  }
+
+  //wait for srdy go low
+  if (!wait_srdy_timeout(LOW, DEFAULT_TIMEOUT_MS))
+    return -1;
 
   //send spi data
   digitalWrite(PIN_CS, LOW);
-  SPI.transfer(sdf.length);
-  SPI.transfer(sdf.cmd0);
-  SPI.transfer(sdf.cmd1);
+  SPI.transfer(sdf->get_length());
+  SPI.transfer(sdf->get_cmd0());
+  SPI.transfer(sdf->get_cmd1());
 
-  for(int i=0; i<sdf.length; i++) {
-    SPI.transfer(sdf.msg[i]);
+  uint8_t *m = rdf->get_msg();
+  for(int i=0; i<sdf->get_length(); i++) {
+    SPI.transfer(m[i]);
   }
   digitalWrite(PIN_CS, HIGH);
 
-  while(digitalRead(PIN_SRDY) == LOW) {
-    delay(10);
-  }
-  #endif
-
-  #ifdef USE_UART
-  uint8_t serial_msg[length + 2];
-  serial_msg[0] = length + 2;
-  serial_msg[1] = cmd0;
-  serial_msg[2] = cmd1;
-  for(int i=3;i<length;i++) {
-    serial_msg[i] = msg[i];
-  }
-
-  digitalWrite(PIN_RTS, HIGH);
-  while (digitalRead(PIN_CTS) != HIGH) {
-    delay(10);
-  }
-  
-  this->serial->write(serial_msg, length + 2);
-  digitalWrite(PIN_RTS, LOW);
-  #endif
+  //wait for srdy go high
+  if (!wait_srdy_timeout(HIGH, DEFAULT_TIMEOUT_MS))
+    return -1;
 
   //receive data
-  this->read_response(rdf);
+  int ret = this->read_response(rdf);
 
-  #ifdef USE_SPI
   digitalWrite(PIN_SS_MRDY, HIGH);
-  #endif
+
+  return ret;
 }
 
 
-void ZNP::areq(const ZNPDataFrame &sdf)
+void ZNP::areq(const ZNPDataFrame *sdf)
 {
-  #ifdef USE_SPI
+Serial.printf("len=0x%x cmd0=0x%x cmd1=0x%x m addr = 0x%x\n",
+  sdf->get_length(), sdf->get_cmd0(), sdf->get_cmd1(), (unsigned int)sdf->get_msg());
+Serial.printf("m[0]=0x%x\n", sdf->get_msg()[0]);
   digitalWrite(PIN_SS_MRDY, LOW);
-  while(digitalRead(PIN_SRDY) == HIGH) {
-    delay(10);
-  }
+  //wait for srdy go low
+  if (!wait_srdy_timeout(LOW, DEFAULT_TIMEOUT_MS))
+    return;
   
+Serial.printf("znp areq send\n");
   //start data transmission
   digitalWrite(PIN_CS, LOW);
-  SPI.transfer(sdf.length);
-  SPI.transfer(sdf.cmd0);
-  SPI.transfer(sdf.cmd1);
-
-  for(int i=0; i<sdf.length; i++) {
-    SPI.transfer(sdf.msg[i]);
+  SPI.transfer(sdf->get_length());
+  SPI.transfer(sdf->get_cmd0());
+  SPI.transfer(sdf->get_cmd1());
+  uint8_t *m = sdf->get_msg();
+  for(int i=0; i<sdf->get_length(); i++) {
+    SPI.transfer(m[i]);
   }
   digitalWrite(PIN_CS, HIGH);
 
-  while(digitalRead(PIN_SRDY) == LOW) {
-    delay(10);
-  }
+  //wait for srdy go high
+  if (!wait_srdy_timeout(HIGH, DEFAULT_TIMEOUT_MS))
+    return;
 
   digitalWrite(PIN_SS_MRDY, HIGH);
-  #endif
+Serial.printf("znp areq done\n");
 }
-
-#if 0
-poll_response ZNP::set_config(uint8_t config_id, uint8_t len, uint8_t * msg)
-{
-  uint8_t length = 2 + len;
-  uint8_t new_msg[length];
-  new_msg[0] = config_id;
-  new_msg[1] = len;
-  for(int i=0;i<len;i++) {
-    new_msg[i+2] = msg[i];
-  }
-  
-  return this->sreq(length, 0x26, 0x05, new_msg);
-}
-
-poll_response ZNP::set_logical_type(uint8_t t)
-{
-  uint8_t msg[1];
-  msg[0] = t;
-  return this->set_config(ZCD_NV_LOGICAL_TYPE, 1, msg);
-}
-
-poll_response ZNP::set_pan_id(uint16_t pan_id) {
-  uint8_t msg[2];
-  msg[0] = 0xFF & pan_id;
-  msg[1] = 0xFF & (pan_id >> 8);
-
-  /*msg[1] = 0xFF & pan_id;
-  msg[0] = 0xFF & (pan_id >> 8);*/
-
-  //memcpy(msg, &pan_id, 2);
-
-  return this->set_config(ZCD_NV_PAN_ID, 2, msg);
-}
-
-poll_response ZNP::set_chanlist(uint32_t chanlist) {
-  uint8_t msg[4];
-  
-  msg[0] = 0xFF & chanlist;
-  msg[1] = 0xFF & (chanlist >> 8);
-  msg[2] = 0xFF & (chanlist >> 16);
-  msg[3] = 0xFF & (chanlist >> 24);
-
-  /*msg[3] = 0xFF & chanlist;
-  msg[2] = 0xFF & (chanlist >> 8);
-  msg[1] = 0xFF & (chanlist >> 16);
-  msg[0] = 0xFF & (chanlist >> 24);*/
-
-  //memcpy(msg, &chanlist, 4);
-
-  return this->set_config(ZCD_NV_CHANLIST, 4, msg);
-}
-
-poll_response ZNP::app_register(uint8_t app_end_point, uint16_t app_profile_id)
-{
-  uint8_t msg[3];
-
-  //memcpy(msg, &app_profile_id, 1);
-  //memcpy(&msg[0], &app_profile_id, 2);
-  
-  
-  msg[0] = app_end_point;
-  msg[1] = 0xFF & app_profile_id;
-  msg[2] = 0xFF & (app_profile_id >> 8);
-
-  
-  /*msg[2] = app_end_point;
-  msg[1] = 0xFF & app_profile_id;
-  msg[0] = 0xFF & (app_profile_id >> 8);*/
-
-  return this->sreq(3, 0x26, 0x0A, msg);
-}
-
-poll_response ZNP::start_request()
-{
-  return this->sreq(0x00, 0x26, 0x00, NULL);
-}
-#endif
