@@ -158,16 +158,17 @@ void ZigbeeSPIInputLoop(void)
 
   while (ZigbeeSPI->available()) {
     yield();
-    ZNPDataFrame rdf;
-    ZigbeeSPI->poll(rdf);
+    uint8_t buf[ZIGBEE_BUFFER_SIZE];
+    ZNPDataFrame rdf(buf);
+    ZigbeeSPI->poll(&rdf);
     AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("Zb SPI Input len=%d cmd0=0x%X cmd1=0x%X"),
-      rdf.length, rdf.cmd0, rdf.cmd1);
-    SBuffer znp_buffer(rdf.length + 2); // save cmd0 cmd1 and data
-    znp_buffer.add8(rdf.cmd0);
-    znp_buffer.add8(rdf.cmd1);
-    znp_buffer.addBuffer(rdf.msg, rdf.length);
+      rdf.get_length(), rdf.get_cmd0(), rdf.get_cmd1());
+    SBuffer znp_buffer(rdf.get_length() + 2); // save cmd0 cmd1 and data
+    znp_buffer.add8(rdf.get_cmd0());
+    znp_buffer.add8(rdf.get_cmd1());
+    znp_buffer.addBuffer(rdf.get_msg(), rdf.get_length());
 
-    char hex_char[(zigbee_buffer->len() * 2) + 2];
+    char hex_char[(znp_buffer.len() * 2) + 2];
     ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
     Response_P(PSTR("{\"" D_JSON_ZIGBEEZNPRECEIVED "\":\"%s\"}"), hex_char);
     if (Settings.flag3.tuya_serial_mqtt_publish) {
@@ -229,9 +230,6 @@ void ZigbeeInit(void)
       Pin(GPIO_ZIGBEE_MISO), Pin(GPIO_ZIGBEE_MOSI), Pin(GPIO_ZIGBEE_CLK), Pin(GPIO_ZIGBEE_CS), Pin(GPIO_ZIGBEE_SRDY), Pin(GPIO_ZIGBEE_MRDY));
     ZigbeeSPI = new ZNP(Pin(GPIO_ZIGBEE_MOSI), Pin(GPIO_ZIGBEE_MISO), Pin(GPIO_ZIGBEE_CLK), Pin(GPIO_ZIGBEE_CS), Pin(GPIO_ZIGBEE_MRDY), Pin(GPIO_ZIGBEE_SRDY), 3);
     ZigbeeSPI->init();
-// AddLog_P2(LOG_LEVEL_INFO, PSTR("ZigbeeInit Mem2 = %d"), ESP_getFreeHeap());
-    zigbee_buffer = new SBuffer(ZIGBEE_BUFFER_SIZE);
-// AddLog_P2(LOG_LEVEL_INFO, PSTR("ZigbeeInit Mem3 = %d"), ESP_getFreeHeap());
     zigbee.active = true;
     zigbee.init_phase = true;         // start the state machine
     zigbee.state_machine = true;      // start the state machine
@@ -346,23 +344,28 @@ void ZigbeeZNPSend(const uint8_t *msg, size_t len) {
 		//AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSend FCS %02X"), fcs);
   }
 #ifdef USE_ZIGBEE_SPI
-  else if (ZigbeeSPI) {
+  if (ZigbeeSPI) {
     // fcs and SOF is not used for SPI protocol
     uint8_t cmd0 = pgm_read_byte(msg);
     uint8_t cmd1 = pgm_read_byte(msg + 1);
-    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSPI LEN %02X, CMD0 %02X CMD1 %02X"), data_len, cmd0, cmd1);
+    uint8_t m[data_len];
+    for (int i = 0; i < data_len; i++)
+      m[i] = pgm_read_byte(msg + 2 + i);
+    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSPI LEN %02X, CMD0 %02X CMD1 %02X msg addr 0x%x"), data_len, cmd0, cmd1, (unsigned int)m);
+    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("msg[0] 0x%x"), m[0]);
     uint8_t cmdtype = cmd0 & 0xE0;
     switch (cmdtype)
     {
     case Z_SREQ: {
-      ZNPDataFrame sdf(data_len, cmd0, cmd1, (uint8_t*)msg + 2);
-      ZNPDataFrame rdf;
-      ZigbeeSPI->sreq(sdf, rdf);
+      uint8_t buf[ZIGBEE_BUFFER_SIZE];
+      ZNPDataFrame sdf(data_len, cmd0, cmd1, m);
+      ZNPDataFrame rdf(buf);
+      ZigbeeSPI->sreq(&sdf, &rdf);
       break;
     }
     case Z_AREQ: {
-      ZNPDataFrame sdf(data_len, cmd0, cmd1, (uint8_t*)msg + 2);
-      ZigbeeSPI->areq(sdf);
+      ZNPDataFrame sdf(data_len, cmd0, cmd1, m);
+      ZigbeeSPI->areq(&sdf);
       break;
     }
     case Z_SRSP:
@@ -1198,7 +1201,7 @@ bool Xdrv23(uint8_t function)
       case FUNC_LOOP:
         if (ZigbeeSerial) { ZigbeeInputLoop(); }
 #ifdef USE_ZIGBEE_SPI
-        else if (ZigbeeSPI) { ZigbeeSPIInputLoop(); }
+        if (ZigbeeSPI) { ZigbeeSPIInputLoop(); }
 #endif
 				if (zigbee.state_machine) {
           ZigbeeStateMachine_Run();
