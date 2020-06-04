@@ -138,15 +138,11 @@ int ZNP::sreq(const ZNPDataFrame *sdf, ZNPDataFrame *rdf)
 
 void ZNP::areq(const ZNPDataFrame *sdf)
 {
-Serial.printf("len=0x%x cmd0=0x%x cmd1=0x%x m addr = 0x%x\n",
-  sdf->get_length(), sdf->get_cmd0(), sdf->get_cmd1(), (unsigned int)sdf->get_msg());
-Serial.printf("m[0]=0x%x\n", sdf->get_msg()[0]);
   digitalWrite(PIN_SS_MRDY, LOW);
   //wait for srdy go low
   if (!wait_srdy_timeout(LOW, DEFAULT_TIMEOUT_MS))
     return;
   
-Serial.printf("znp areq send\n");
   //start data transmission
   digitalWrite(PIN_CS, LOW);
   SPI.transfer(sdf->get_length());
@@ -163,5 +159,4 @@ Serial.printf("znp areq send\n");
     return;
 
   digitalWrite(PIN_SS_MRDY, HIGH);
-Serial.printf("znp areq done\n");
 }
