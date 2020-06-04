@@ -571,8 +571,9 @@ struct {
   uint8_t       windmeter_tele_pchange;    // F3E
   uint8_t       free_f3f[1];               // F3F
   uint16_t      ser2net_port;              // F40
+  uint16_t      zig2net_port;              // F42
 
-  uint8_t       free_f42[118];             // F42 - Decrement if adding new Setting variables just above and below
+  uint8_t       free_f44[116];             // F44 - Decrement if adding new Setting variables just above and below
 
   // Only 32 bit boundary variables below
   uint16_t      pulse_counter_debounce_low;  // FB8

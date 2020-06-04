@@ -774,6 +774,7 @@ void SettingsDefaultSet2(void)
   Settings.serial_delimiter = 0xff;
   Settings.seriallog_level = SERIAL_LOG_LEVEL;
   Settings.ser2net_port = 8880;
+  Settings.zig2net_port = 8881;
 
   // Wifi
   flag3.use_wifi_scan |= WIFI_SCAN_AT_RESTART;

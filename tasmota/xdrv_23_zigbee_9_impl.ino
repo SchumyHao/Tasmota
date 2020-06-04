@@ -27,6 +27,10 @@ const uint8_t  ZIGBEE_SOF_ALT = 0xFF;
 
 #include <TasmotaSerial.h>
 TasmotaSerial *ZigbeeSerial = nullptr;
+WiFiServer *Zb2netServer = nullptr;
+WiFiClient *Zb2netClient = nullptr;
+SBuffer *zig2net_buffer = nullptr;
+
 
 
 const char kZbCommands[] PROGMEM = D_PRFX_ZB "|"    // prefix
@@ -36,7 +40,7 @@ const char kZbCommands[] PROGMEM = D_PRFX_ZB "|"    // prefix
   D_CMND_ZIGBEE_FORGET "|" D_CMND_ZIGBEE_SAVE "|" D_CMND_ZIGBEE_NAME "|"
   D_CMND_ZIGBEE_BIND "|" D_CMND_ZIGBEE_UNBIND "|" D_CMND_ZIGBEE_PING "|" D_CMND_ZIGBEE_MODELID "|"
   D_CMND_ZIGBEE_LIGHT "|" D_CMND_ZIGBEE_RESTORE "|" D_CMND_ZIGBEE_BIND_STATE "|"
-  D_CMND_ZIGBEE_CONFIG
+  D_CMND_ZIGBEE_CONFIG "|" D_CMND_ZIGBEE2NET_PORT
   ;
 
 void (* const ZigbeeCommand[])(void) PROGMEM = {
@@ -46,8 +50,20 @@ void (* const ZigbeeCommand[])(void) PROGMEM = {
   &CmndZbForget, &CmndZbSave, &CmndZbName,
   &CmndZbBind, &CmndZbUnbind, &CmndZbPing, &CmndZbModelId,
   &CmndZbLight, &CmndZbRestore, &CmndZbBindState,
-  &CmndZbConfig,
+  &CmndZbConfig, &CmndZb2NetPort
   };
+
+void ZbBridgeCreateTCPServer(int port) {
+  if (port > 0) {
+    Zb2netServer = new WiFiServer(Settings.zig2net_port);
+    Zb2netServer->begin();
+    Zb2netServer->setNoDelay(true);
+  } else {
+    Zb2netServer->stop();
+    delete Zb2netServer;
+    Zb2netServer = nullptr;
+  }
+}
 
 //
 // Called at event loop, checks for incoming data from the CC2530
@@ -125,6 +141,10 @@ void ZigbeeInputLoop(void)
 			// frame is correct
 			//AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received correct frame %s"), hex_char);
 
+      if (Zb2netClient) {
+        Zb2netClient->write(zigbee_buffer->getBuffer(), zigbee_buffer->len());
+      }
+
 			SBuffer znp_buffer = zigbee_buffer->subBuffer(2, zigbee_frame_len - 3);	// remove SOF, LEN and FCS
 
 			ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
@@ -139,6 +159,107 @@ void ZigbeeInputLoop(void)
       ZigbeeProcessInput(znp_buffer);
 		}
 		zigbee_buffer->setLen(0);		// empty buffer
+  }
+}
+
+void ZbTCPInputLoop(void)
+{
+  if (Zb2netClient && !Zb2netClient->connected()) {
+    Zb2netClient->stop();
+    delete Zb2netClient;
+    Zb2netClient = nullptr;
+  }
+  if (!Zb2netClient && Zb2netServer && Zb2netServer->hasClient()) {
+    // Free unconnected client first.
+    if (Zb2netClient && !Zb2netClient->connected()) {
+      Zb2netClient->stop();
+      delete Zb2netClient;
+      Zb2netClient = nullptr;
+    }
+    Zb2netClient = new WiFiClient;
+    *Zb2netClient = Zb2netServer->available();
+  }
+
+  static uint32_t zb_tcp_polling_window = 0;
+  static uint8_t fcs = ZIGBEE_SOF;
+  static uint32_t zigbee_frame_len = 5;		// minimal zigbee frame lenght, will be updated when buf[1] is read
+  // Receive only valid ZNP frames:
+  // 00 - SOF = 0xFE
+  // 01 - Length of Data Field - 0..250
+  // 02 - CMD1 - first byte of command
+  // 03 - CMD2 - second byte of command
+  // 04..FD - Data Field
+  // FE (or last) - FCS Checksum
+
+  while (Zb2netClient->available()) {
+    yield();
+    uint8_t zig_tcp_in_byte = Zb2netClient->read();
+    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZbTCP byte=%d len=%d"), zig_tcp_in_byte, zig2net_buffer->len());
+
+    if (0 == zig2net_buffer->len()) {  // make sure all variables are correctly initialized
+      zigbee_frame_len = 5;
+      fcs = ZIGBEE_SOF;
+      // there is a rare race condition when an interrupt occurs when receiving the first byte
+      // in this case the first bit (lsb) is missed and Tasmota receives 0xFF instead of 0xFE
+      // We forgive this mistake, and next bytes are automatically resynchronized
+      if (ZIGBEE_SOF_ALT == zig_tcp_in_byte) {
+        AddLog_P2(LOG_LEVEL_INFO, PSTR("ZbTCP forgiven first byte %02X (only for statistics)"), zig_tcp_in_byte);
+        zig_tcp_in_byte = ZIGBEE_SOF;
+      }
+    }
+
+    if ((0 == zig2net_buffer->len()) && (ZIGBEE_SOF != zig_tcp_in_byte)) {
+      // waiting for SOF (Start Of Frame) byte, discard anything else
+      AddLog_P2(LOG_LEVEL_INFO, PSTR("ZbTCP discarding byte %02X"), zig_tcp_in_byte);
+      continue;     // discard
+    }
+
+    if (zig2net_buffer->len() < zigbee_frame_len) {
+      zig2net_buffer->add8(zig_tcp_in_byte);
+      zb_tcp_polling_window = millis();                               // Wait for more data
+      fcs ^= zig_tcp_in_byte;
+    }
+
+    if (zig2net_buffer->len() >= zigbee_frame_len) {
+      zb_tcp_polling_window = 0;                                      // Publish now
+      break;
+    }
+
+    // recalculate frame length
+    if (02 == zig2net_buffer->len()) {
+      // We just received the Lenght byte
+      uint8_t len_byte = zig2net_buffer->get8(1);
+      if (len_byte > 250)  len_byte = 250;    // ZNP spec says len is 250 max
+
+      zigbee_frame_len = len_byte + 5;        // SOF + LEN + CMD1 + CMD2 + FCS = 5 bytes overhead
+    }
+  }
+
+  if (zig2net_buffer->len() && (millis() > (zb_tcp_polling_window + ZIGBEE_POLLING))) {
+    char hex_char[(zig2net_buffer->len() * 2) + 2];
+    ToHex_P((unsigned char*)zig2net_buffer->getBuffer(), zig2net_buffer->len(), hex_char, sizeof(hex_char));
+
+    // buffer received, now check integrity
+    if (zig2net_buffer->len() != zigbee_frame_len) {
+      // Len is not correct, log and reject frame
+      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received frame of wrong size %s, len %d, expected %d"), hex_char, zig2net_buffer->len(), zigbee_frame_len);
+    } else if (0x00 != fcs) {
+      // FCS is wrong, packet is corrupt, log and reject frame
+      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received bad FCS frame %s, %d"), hex_char, fcs);
+    } else {
+      // frame is correct
+      //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received correct TCP frame %s"), hex_char);
+
+      SBuffer znp_buffer = zig2net_buffer->subBuffer(2, zigbee_frame_len - 3);	// remove SOF, LEN and FCS
+
+      ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
+      Response_P(PSTR("{\"" D_JSON_ZIGBEEZNPRECEIVED "\":\"%s\"}"), hex_char);
+      AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "%s"), mqtt_data);
+
+      // now send the message
+      ZigbeeZNPSend(znp_buffer.getBuffer(), znp_buffer.len());
+    }
+    zig2net_buffer->setLen(0);		// empty buffer
   }
 }
 
@@ -176,6 +297,9 @@ void ZigbeeInit(void)
 			zigbee_buffer = new SBuffer(ZIGBEE_BUFFER_SIZE);
 // AddLog_P2(LOG_LEVEL_INFO, PSTR("ZigbeeInit Mem3 = %d"), ESP_getFreeHeap());
 		}
+    if (Settings.zig2net_port > 0) {
+      zig2net_buffer = new SBuffer(ZIGBEE_BUFFER_SIZE);
+    }
     zigbee.active = true;
 		zigbee.init_phase = true;			// start the state machine
     zigbee.state_machine = true;      // start the state machine
@@ -1095,6 +1219,22 @@ void CmndZbConfig(void) {
                   hex_precfgkey_l, hex_precfgkey_h);
 }
 
+void CmndZb2NetPort(void)
+{
+  if (XdrvMailbox.payload > 0) {
+    Settings.zig2net_port = XdrvMailbox.payload;
+    if ((Zb2netServer) && (Zb2netServer->port() != Settings.zig2net_port))
+      // Delete old server.
+      ZbBridgeCreateTCPServer(-1);
+    if (!Zb2netServer)
+      ZbBridgeCreateTCPServer(Settings.zig2net_port);
+  } else {
+    ZbBridgeCreateTCPServer(-1);
+    Settings.zig2net_port = 0;
+  }
+  ResponseCmndNumber(Settings.zig2net_port);
+}
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -1112,6 +1252,14 @@ bool Xdrv23(uint8_t function)
         break;
       case FUNC_LOOP:
         if (ZigbeeSerial) { ZigbeeInputLoop(); }
+        if (Settings.zig2net_port > 0) {
+          if (Zb2netServer) {
+            ZbTCPInputLoop();
+          } else {
+            if (WiFi.status() == WL_CONNECTED)
+              ZbBridgeCreateTCPServer(Settings.zig2net_port);
+          }
+        }
 				if (zigbee.state_machine) {
           ZigbeeStateMachine_Run();
 				}
