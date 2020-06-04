@@ -404,8 +404,8 @@
 #define USE_SCRIPT                               // Add support for script (+17k code)
   #define USE_SCRIPT_WEB_DISPLAY
   #define USE_BUTTON_EVENT
-  #define USE_SCRIPT_FATFS                       // Script: Add FAT FileSystem Support
-  #define USE_LITTLEFS
+  //#define USE_SCRIPT_FATFS                       // Script: Add FAT FileSystem Support
+  //#define USE_LITTLEFS
 
 //  #define USE_EXPRESSION                         // Add support for expression evaluation in rules (+3k2 code, +64 bytes mem)
 //    #define SUPPORT_IF_STATEMENT                 // Add support for IF statement in rules (+4k2 code, -332 bytes mem)
