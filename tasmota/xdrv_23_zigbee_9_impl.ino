@@ -58,6 +58,7 @@ void ZbBridgeCreateTCPServer(int port) {
     Zb2netServer = new WiFiServer(Settings.zig2net_port);
     Zb2netServer->begin();
     Zb2netServer->setNoDelay(true);
+    AddLog_P2(LOG_LEVEL_INFO, PSTR("Zig2Net server listen on port %d"), Settings.zig2net_port);
   } else {
     Zb2netServer->stop();
     delete Zb2netServer;
@@ -191,10 +192,10 @@ void ZbTCPInputLoop(void)
   // 04..FD - Data Field
   // FE (or last) - FCS Checksum
 
-  while (Zb2netClient->available()) {
+  while (Zb2netClient && Zb2netClient->available()) {
     yield();
     uint8_t zig_tcp_in_byte = Zb2netClient->read();
-    AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZbTCP byte=%d len=%d"), zig_tcp_in_byte, zig2net_buffer->len());
+    // AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZbTCP byte=%d len=%d"), zig_tcp_in_byte, zig2net_buffer->len());
 
     if (0 == zig2net_buffer->len()) {  // make sure all variables are correctly initialized
       zigbee_frame_len = 5;
@@ -242,18 +243,18 @@ void ZbTCPInputLoop(void)
     // buffer received, now check integrity
     if (zig2net_buffer->len() != zigbee_frame_len) {
       // Len is not correct, log and reject frame
-      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received frame of wrong size %s, len %d, expected %d"), hex_char, zig2net_buffer->len(), zigbee_frame_len);
+      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZ2NRECEIVED ": received frame of wrong size %s, len %d, expected %d"), hex_char, zig2net_buffer->len(), zigbee_frame_len);
     } else if (0x00 != fcs) {
       // FCS is wrong, packet is corrupt, log and reject frame
-      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received bad FCS frame %s, %d"), hex_char, fcs);
+      AddLog_P2(LOG_LEVEL_INFO, PSTR(D_JSON_ZIGBEEZ2NRECEIVED ": received bad FCS frame %s, %d"), hex_char, fcs);
     } else {
       // frame is correct
-      //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received correct TCP frame %s"), hex_char);
+      //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_JSON_ZIGBEEZ2NRECEIVED ": received correct TCP frame %s"), hex_char);
 
       SBuffer znp_buffer = zig2net_buffer->subBuffer(2, zigbee_frame_len - 3);	// remove SOF, LEN and FCS
 
       ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
-      Response_P(PSTR("{\"" D_JSON_ZIGBEEZNPRECEIVED "\":\"%s\"}"), hex_char);
+      Response_P(PSTR("{\"" D_JSON_ZIGBEEZ2NRECEIVED "\":\"%s\"}"), hex_char);
       AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "%s"), mqtt_data);
 
       // now send the message
@@ -1228,6 +1229,8 @@ void CmndZb2NetPort(void)
       ZbBridgeCreateTCPServer(-1);
     if (!Zb2netServer)
       ZbBridgeCreateTCPServer(Settings.zig2net_port);
+    if (!zig2net_buffer)
+      zig2net_buffer = new SBuffer(ZIGBEE_BUFFER_SIZE);
   } else {
     ZbBridgeCreateTCPServer(-1);
     Settings.zig2net_port = 0;
