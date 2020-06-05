@@ -142,10 +142,6 @@ void ZigbeeInputLoop(void)
 			// frame is correct
 			//AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_JSON_ZIGBEEZNPRECEIVED ": received correct frame %s"), hex_char);
 
-      if (Zb2netClient) {
-        Zb2netClient->write(zigbee_buffer->getBuffer(), zigbee_buffer->len());
-      }
-
 			SBuffer znp_buffer = zigbee_buffer->subBuffer(2, zigbee_frame_len - 3);	// remove SOF, LEN and FCS
 
 			ToHex_P((unsigned char*)znp_buffer.getBuffer(), znp_buffer.len(), hex_char, sizeof(hex_char));
@@ -158,6 +154,10 @@ void ZigbeeInputLoop(void)
       }
 			// now process the message
       ZigbeeProcessInput(znp_buffer);
+      if (Zb2netClient) {
+        ZigbeeZ2NSend(znp_buffer.getBuffer(), znp_buffer.len());
+        //Zb2netClient->write(zigbee_buffer->getBuffer(), zigbee_buffer->len());
+      }
 		}
 		zigbee_buffer->setLen(0);		// empty buffer
   }
@@ -417,6 +417,36 @@ void ZigbeeZNPSend(const uint8_t *msg, size_t len) {
 	char hex_char[(len * 2) + 2];
   AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE D_JSON_ZIGBEEZNPSENT " %s"),
                                		ToHex_P(msg, len, hex_char, sizeof(hex_char)));
+}
+
+void ZigbeeZ2NSend(const uint8_t *msg, size_t len) {
+  if ((len < 2) || (len > 252)) {
+    // abort, message cannot be less than 2 bytes for CMD1 and CMD2
+    AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_JSON_ZIGBEEZ2NSENT ": bad message len %d"), len);
+    return;
+  }
+  uint8_t data_len = len - 2;		// removing CMD1 and CMD2
+
+  if (Zb2netClient) {
+    uint8_t fcs = data_len;
+
+    Zb2netClient->write(ZIGBEE_SOF);		// 0xFE
+    //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSend SOF %02X"), ZIGBEE_SOF);
+    Zb2netClient->write(data_len);
+    //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSend LEN %02X"), data_len);
+    for (uint32_t i = 0; i < len; i++) {
+      uint8_t b = pgm_read_byte(msg + i);
+      Zb2netClient->write(b);
+      fcs ^= b;
+      //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSend byt %02X"), b);
+    }
+    Zb2netClient->write(fcs);			// finally send fcs checksum byte
+    //AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR("ZNPSend FCS %02X"), fcs);
+  }
+  // Now send a MQTT message to report the sent message
+  char hex_char[(len * 2) + 2];
+  AddLog_P2(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE D_JSON_ZIGBEEZ2NSENT " %s"),
+          ToHex_P(msg, len, hex_char, sizeof(hex_char)));
 }
 
 //
